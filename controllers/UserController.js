@@ -1,13 +1,20 @@
-const { User, Post } = require("../models/index.js");
-
+const { User, Post, Token,Sequelize } = require("../models/index.js");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const { jwt_secret } = require("../config/config.json")["development"];
+const {Op} = Sequelize
 const UserController = {
   create(req, res) {
     req.body.role = "user"; //para asignar el rol automaticamente
-    User.create(req.body)
+    const password = bcrypt.hashSync(req.body.password, 10);
+    User.create({ ...req.body, password })
       .then((user) =>
         res.status(201).send({ message: "Usuario creado con éxito", user })
       )
-      .catch((err) => console.error(err));
+      .catch((err) => {
+        console.error(err);
+        res.status(500).send(err);
+      });
   },
   getAll(req, res) {
     User.findAll({
@@ -41,6 +48,46 @@ const UserController = {
       },
     });
     res.send("Usuario actualizado con éxito");
+  },
+  login(req, res) {
+    User.findOne({
+      where: {
+        email: req.body.email,
+      },
+    }).then((user) => {
+      if (!user) {
+        return res
+          .status(400)
+          .send({ message: "Usuario o contraseña incorrectos" });
+      }
+      const isMatch = bcrypt.compareSync(req.body.password, user.password);
+      if (!isMatch) {
+        return res
+          .status(400)
+          .send({ message: "Usuario o contraseña incorrectos" });
+      }
+      const token = jwt.sign({ id: user.id }, jwt_secret);
+      Token.create({ token, UserId: user.id });
+      res.send({ msg: `Bienvenid@ ${user.name}`, token, user });
+    });
+  },
+  async logout(req, res) {
+    try {
+      await Token.destroy({
+        where: {
+          [Op.and]: [
+            { UserId: req.user.id },
+            { token: req.headers.authorization },
+          ],
+        },
+      });
+      res.send({ message: "Desconectado con éxito" });
+    } catch (error) {
+      console.log(error);
+      res
+        .status(500)
+        .send({ message: "hubo un problema al tratar de desconectarte" });
+    }
   },
 };
 
